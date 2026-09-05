@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Question Extractor — Continuous LeetCode & HackerRank Harvester</title>
+  <meta name="description" content="Continuous automated coding question extractor for LeetCode and HackerRank. Pulls questions directly into JSON with zero duplicates and start/stop controls.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="brand-area">
+        <div class="brand-logo" id="brandLogo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div class="brand-titles">
+          <h1>Question Extractor</h1>
+          <p>Continuous LeetCode &amp; HackerRank Harvester &bull; Strict Zero-Duplicate JSON Engine</p>
+        </div>
+      </div>
+
+      <div class="header-badges">
+        <div class="platform-pill leetcode" title="LeetCode GraphQL Engine Connected">
+          <span class="dot"></span>
+          <span>LeetCode</span>
+        </div>
+        <div class="platform-pill hackerrank" title="HackerRank REST Engine Connected">
+          <span class="dot"></span>
+          <span>HackerRank</span>
+        </div>
+        <div class="format-pill" title="Target Storage">
+          <span class="format-label">FORMAT:</span>
+          <span class="format-val">JSON ONLY</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Control Console -->
+    <main class="control-console">
+      <section class="hero-card" id="controlSection">
+        <div class="hero-status-row">
+          <div class="live-status-badge" id="statusBadge">
+            <span class="status-pulse-ring" id="pulseRing"></span>
+            <span class="status-dot" id="statusDot"></span>
+            <span class="status-text" id="statusText">READY</span>
+          </div>
+          <div class="hero-live-action" id="currentActionText">Click "Start Extraction" to begin harvesting questions into questions.json</div>
+        </div>
+
+        <div class="hero-controls-row">
+          <button id="startBtn" class="btn-action btn-start" title="Start continuous question extraction">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span>Start Extraction</span>
+          </button>
+
+          <button id="stopBtn" class="btn-action btn-stop" title="Stop continuous question extraction" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+            </svg>
+            <span>Stop Extraction</span>
+          </button>
+
+          <div class="controls-divider"></div>
+
+          <a id="downloadBtn" href="/api/questions/download" class="btn-action btn-download" title="Download single questions.json file">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Download questions.json</span>
+          </a>
+
+          <button id="viewJsonBtn" class="btn-action btn-secondary" title="Preview saved questions in JSON format">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            <span>View JSON</span>
+          </button>
+
+          <button id="clearBtn" class="btn-action btn-danger-outline" title="Reset dataset to 0 questions">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>Reset</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Real-Time Metrics Grid -->
+      <section class="metrics-grid">
+        <div class="metric-card glow-cyan">
+          <div class="metric-header">
+            <span class="metric-title">Total Questions Saved</span>
+            <div class="metric-icon cyan">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value" id="statTotal">0</div>
+          <div class="metric-footer">
+            <span class="badge-tag">No Duplicates</span>
+            <span class="metric-desc">Saved in questions.json</span>
+          </div>
+        </div>
+
+        <div class="metric-card glow-amber">
+          <div class="metric-header">
+            <span class="metric-title">LeetCode Extracted</span>
+            <div class="metric-icon amber">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M13.483 0a1.374 1.374 0 0 0-.961.438L7.116 6.226l-3.854 4.126a5.266 5.266 0 0 0-1.209 2.104 5.35 5.35 0 0 0-.125.513 5.527 5.527 0 0 0 .062 2.362 5.83 5.83 0 0 0 .349 1.017 5.938 5.938 0 0 0 4.818 3.593 5.97 5.97 0 0 0 3.826-.957l2.884-2.146.002-.001 2.384-1.774a1.378 1.378 0 0 0 .278-1.92 1.38 1.38 0 0 0-1.922-.278l-2.383 1.774-2.884 2.146a3.218 3.218 0 0 1-2.062.516 3.197 3.197 0 0 1-2.593-1.936 3.01 3.01 0 0 1-.188-.548 2.97 2.97 0 0 1-.033-1.272c.046-.356.166-.702.353-1.015.074-.124.16-.243.257-.354l3.854-4.126 5.406-5.788a1.376 1.376 0 0 0-.96-2.351z"/>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value" id="statLeetcode">0</div>
+          <div class="metric-footer">
+            <span class="badge-tag lc">GraphQL API</span>
+            <span class="metric-desc">Filtered free problems</span>
+          </div>
+        </div>
+
+        <div class="metric-card glow-green">
+          <div class="metric-header">
+            <span class="metric-title">HackerRank Extracted</span>
+            <div class="metric-icon green">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0a12 12 0 1 0 12 12A12 12 0 0 0 12 0zm1.75 16.5v-3.25h-3.5v3.25h-2.5V7.5h2.5v3.25h3.5V7.5h2.5v9z"/>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value" id="statHackerrank">0</div>
+          <div class="metric-footer">
+            <span class="badge-tag hr">REST Catalog</span>
+            <span class="metric-desc">Algorithms &amp; DS tracks</span>
+          </div>
+        </div>
+
+        <div class="metric-card glow-purple">
+          <div class="metric-header">
+            <span class="metric-title">Duplicates Skipped</span>
+            <div class="metric-icon purple">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                <path d="m9 12 2 2 4-4"></path>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value" id="statSkipped">0</div>
+          <div class="metric-footer">
+            <span class="badge-tag skip">Filter Protected</span>
+            <span class="metric-desc">Never pulled twice</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live Stream Section -->
+      <section class="stream-section">
+        <div class="stream-header">
+          <div class="stream-title-area">
+            <h2>Live Question Stream</h2>
+            <span class="live-pill">
+              <span class="dot"></span>
+              REAL-TIME
+            </span>
+          </div>
+          <div class="stream-actions">
+            <span class="file-path-indicator">Output: <code>questions.json</code> (Single File)</span>
+          </div>
+        </div>
+
+        <div class="stream-container" id="streamContainer">
+          <div class="stream-empty-state" id="streamEmpty">
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+            </div>
+            <h3>Waiting for Extraction to Start</h3>
+            <p>Press <strong>Start Extraction</strong> above. The engine will continuously harvest problems from LeetCode and HackerRank without duplicates until you press Stop.</p>
+          </div>
+          <div class="stream-list" id="streamList" style="display: none;"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- JSON Preview Modal -->
+    <div class="modal-backdrop" id="jsonModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="16 18 22 12 16 6"></polyline>
+              <polyline points="8 6 2 12 8 18"></polyline>
+            </svg>
+            <h3>questions.json Preview</h3>
+          </div>
+          <div class="modal-actions">
+            <button id="copyJsonBtn" class="btn-action btn-sm">Copy JSON</button>
+            <button id="closeModalBtn" class="btn-close" aria-label="Close modal">&times;</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <pre id="jsonContent"><code>Loading questions.json...</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
