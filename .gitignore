@@ -26,3 +26,13 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+
+# Local secrets and local database
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Local exports
+questions.export.json

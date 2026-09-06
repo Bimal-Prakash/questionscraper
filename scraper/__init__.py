@@ -3,6 +3,7 @@ from scraper.client import fetch_problem, detect_platform
 from scraper.leetcode import fetch_leetcode_problem, list_leetcode_problems
 from scraper.hackerrank import fetch_hackerrank_problem, list_hackerrank_problems
 from scraper.storage import JsonProblemStore
+from scraper.db_store import DbProblemStore
 from scraper.extractor import ContinuousExtractor
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "list_leetcode_problems",
     "list_hackerrank_problems",
     "JsonProblemStore",
+    "DbProblemStore",
     "ContinuousExtractor",
 ]

@@ -3,25 +3,34 @@ import threading
 import traceback
 from typing import Optional, Callable, Dict, Any, List
 from scraper.models import Platform, Problem
-from scraper.storage import JsonProblemStore
 from scraper.leetcode import list_leetcode_problems, fetch_leetcode_problem
 from scraper.hackerrank import list_hackerrank_problems, fetch_hackerrank_problem
 
 class ContinuousExtractor:
     """
     Orchestrates continuous background pulling of coding problems from LeetCode
-    and HackerRank into questions.json, with automatic deduplication and
+    and HackerRank into the configured store, with automatic deduplication and
     responsive start/stop controls.
+
+    The store is anything exposing `has_problem` / `add_problem` / `get_stats`:
+    `DbProblemStore` (Postgres or SQLite) in every deployed environment,
+    `JsonProblemStore` when you want a flat questions.json instead. A store that
+    also exposes `get_cursor` / `set_cursor` keeps its place in the two
+    catalogues across restarts - which is what makes a scheduled CI run pick up
+    where the previous one stopped instead of re-walking pages it already has.
     """
     def __init__(
         self,
-        store: Optional[JsonProblemStore] = None,
+        store: Optional[Any] = None,
         delay_seconds: float = 0.8,
         on_item_extracted: Optional[Callable[[Dict[str, Any]], None]] = None,
         on_duplicate_skipped: Optional[Callable[[Dict[str, Any]], None]] = None,
         on_status_change: Optional[Callable[[str], None]] = None,
     ):
-        self.store = store or JsonProblemStore()
+        if store is None:
+            from scraper.db_store import DbProblemStore
+            store = DbProblemStore()
+        self.store = store
         self.delay_seconds = delay_seconds
         self.on_item_extracted = on_item_extracted
         self.on_duplicate_skipped = on_duplicate_skipped
@@ -36,11 +45,45 @@ class ContinuousExtractor:
         self.current_action: str = ""
         self.recent_extracted: List[Dict[str, Any]] = []
 
-        # Internal catalog pagination trackers
+        # Internal catalog pagination trackers, restored from the store when it
+        # remembers them.
         self.lc_skip: int = 0
         self.hr_offset: int = 0
         self.hr_track_index: int = 0
         self.hr_tracks: List[str] = ["algorithms", "data-structures"]
+        self._load_cursor()
+
+        # Optional stop conditions, used by one-shot runs (CI, `--count`).
+        self.stop_after_items: int = 0
+        self.stop_after_seconds: float = 0.0
+        self.items_this_run: int = 0
+
+    # ------------------------------------------------------------- cursor
+    def _load_cursor(self) -> None:
+        getter = getattr(self.store, "get_cursor", None)
+        if getter is None:
+            return
+        try:
+            cursor = getter() or {}
+        except Exception as e:
+            print(f"[Warning] Could not read the saved catalog cursor: {e}")
+            return
+        self.lc_skip = int(cursor.get("lc_skip", 0) or 0)
+        self.hr_offset = int(cursor.get("hr_offset", 0) or 0)
+        self.hr_track_index = int(cursor.get("hr_track_index", 0) or 0)
+
+    def _persist_cursor(self) -> None:
+        setter = getattr(self.store, "set_cursor", None)
+        if setter is None:
+            return
+        try:
+            setter({
+                "lc_skip": self.lc_skip,
+                "hr_offset": self.hr_offset,
+                "hr_track_index": self.hr_track_index,
+            })
+        except Exception as e:
+            print(f"[Warning] Could not save the catalog cursor: {e}")
 
     def start(self) -> bool:
         """
@@ -93,9 +136,22 @@ class ContinuousExtractor:
         Main extraction loop that keeps pulling questions until stopped.
         """
         turn = 0  # 0 for LeetCode, 1 for HackerRank
+        self.items_this_run = 0
+        deadline = (
+            time.monotonic() + self.stop_after_seconds
+            if self.stop_after_seconds > 0
+            else None
+        )
 
         try:
             while not self._stop_event.is_set():
+                if deadline is not None and time.monotonic() >= deadline:
+                    self.current_action = "Time budget reached"
+                    break
+                if self.stop_after_items and self.items_this_run >= self.stop_after_items:
+                    self.current_action = "Target question count reached"
+                    break
+
                 turn += 1
                 if turn % 2 == 1:
                     # LeetCode Turn
@@ -113,11 +169,13 @@ class ContinuousExtractor:
             traceback.print_exc()
             self.status_message = f"Error: {e}"
         finally:
+            # Written on the way out too: a run stopped by Ctrl+C or by a
+            # sleeping free instance still moved through the catalogue.
+            self._persist_cursor()
             with self._lock:
                 self.is_running = False
                 if not self.status_message.startswith("Error"):
                     self.status_message = "Idle"
-                self.current_action = ""
 
             if self.on_status_change:
                 self.on_status_change(self.status_message)
@@ -130,10 +188,12 @@ class ContinuousExtractor:
         try:
             candidates = list_leetcode_problems(limit=25, skip=self.lc_skip, free_only=True)
             if not candidates:
-                # Wrap around or advance
+                # Walked off the end of the catalogue: start over.
                 self.lc_skip = 0
+                self._persist_cursor()
                 return
             self.lc_skip += len(candidates)
+            self._persist_cursor()
         except Exception as e:
             self.current_action = f"LeetCode catalog query failed: {e}"
             time.sleep(1.0)
@@ -154,7 +214,7 @@ class ContinuousExtractor:
                         "platform": "leetcode",
                         "slug": slug,
                         "title": title,
-                        "reason": "Already exists in questions.json"
+                        "reason": "Already stored"
                     })
                 continue
 
@@ -175,6 +235,7 @@ class ContinuousExtractor:
                         "test_cases_count": len(problem.sample_test_cases),
                         "snippets_count": len(problem.code_snippets),
                     }
+                    self.items_this_run += 1
                     self.recent_extracted.insert(0, item_summary)
                     if len(self.recent_extracted) > 50:
                         self.recent_extracted = self.recent_extracted[:50]
@@ -198,11 +259,13 @@ class ContinuousExtractor:
         try:
             candidates = list_hackerrank_problems(limit=25, offset=self.hr_offset, track=track)
             if not candidates:
-                # Advance track
+                # Track exhausted: move to the next one.
                 self.hr_track_index += 1
                 self.hr_offset = 0
+                self._persist_cursor()
                 return
             self.hr_offset += len(candidates)
+            self._persist_cursor()
         except Exception as e:
             self.current_action = f"HackerRank catalog query failed: {e}"
             time.sleep(1.0)
@@ -223,7 +286,7 @@ class ContinuousExtractor:
                         "platform": "hackerrank",
                         "slug": slug,
                         "title": title,
-                        "reason": "Already exists in questions.json"
+                        "reason": "Already stored"
                     })
                 continue
 
@@ -244,6 +307,7 @@ class ContinuousExtractor:
                         "test_cases_count": len(problem.sample_test_cases),
                         "snippets_count": len(problem.code_snippets),
                     }
+                    self.items_this_run += 1
                     self.recent_extracted.insert(0, item_summary)
                     if len(self.recent_extracted) > 50:
                         self.recent_extracted = self.recent_extracted[:50]

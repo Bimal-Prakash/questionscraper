@@ -1,80 +1,98 @@
 # ⚡ Question Extractor (LeetCode & HackerRank)
 
-> An automated coding question extractor that continuously harvests questions from **LeetCode** and **HackerRank** directly into a clean `questions.json` format until you press **Stop**, with **strict zero-duplicate guarantees**.
+> Continuously harvests coding questions from **LeetCode** and **HackerRank**
+> into Postgres (or SQLite locally), with **strict zero-duplicate guarantees**,
+> and serves them as a JSON API your frontend can call.
+
+Deployment on free tiers — Neon + Render + GitHub Actions — is in
+**[DEPLOY.md](DEPLOY.md)**.
 
 ---
 
 ## 🌟 Key Features
 
-- **Continuous Extraction**: Keeps pulling questions automatically from LeetCode and HackerRank until you press **Stop** (in the UI) or `Ctrl+C` (in CLI).
-- **Pure JSON Storage**: All problem statements, difficulty, tags, constraints, hints, test cases, and multi-language code snippets are saved directly into `questions.json`.
-- **Zero Duplicates Ever**: Every question is deduplicated across sessions by unique `(platform, slug)` identity before fetching and saving.
-- **Zero Input Required**: You don't have to choose a platform or type problem names like `two-sum`. The tool continuously extracts any available problems automatically.
-- **Start / Stop Controls**: Simple, responsive Start & Stop buttons with real-time counters and a live activity feed.
-- **Direct JSON Download**: 1-click download of the complete `questions.json` dataset right from the dashboard.
+- **Continuous Extraction**: keeps pulling questions from both platforms until you press **Stop** (UI) or `Ctrl+C` (CLI), or until a `--count` / `--minutes` budget runs out.
+- **Durable Storage**: every problem statement, difficulty, tag, constraint, hint, test case and multi-language code snippet lands in the database as it arrives. No file to lose, no partial write.
+- **Zero Duplicates Ever**: enforced by a unique constraint on `(platform, slug)`, so even two harvesters running at once cannot double-store a question. An in-memory index on top of it avoids the wasted fetch.
+- **Resumable**: the catalogue cursor lives in the database, so a scheduled run picks up where the last one stopped instead of re-walking pages.
+- **JSON API**: filter by platform, difficulty, tag or search term; stream the whole dataset back out as `questions.json` whenever you want the flat file.
+- **Start / Stop Dashboard**: live counters and an activity feed at `/`.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Run the CLI Extractor (Continuous Mode)
-
-Extract questions continuously into `questions.json` until you press `Ctrl+C`:
+Everything below writes to `data/questions.db` (SQLite) unless `DATABASE_URL`
+points somewhere else. Copy `.env.example` to `.env` to change any setting.
 
 ```bash
-python extract.py
+pip install -r requirements.txt
 ```
 
-Or extract a specific target count:
-```bash
-# Pull 25 new questions and then stop automatically
-python extract.py --count 25
+### 1. Harvest questions
 
-# Save into a custom JSON file
-python extract.py --output dataset.json
+```bash
+python cli.py extract                 # pull until Ctrl+C
+python cli.py extract --count 25      # pull 25 new questions, then stop
+python cli.py extract --minutes 20    # pull for 20 minutes (what CI runs)
+python cli.py extract --json out.json # pull into a flat JSON file instead
 ```
 
-Or via the CLI runner:
+`python extract.py` is a shorthand for `python cli.py extract`.
+
+### 2. Launch the dashboard
+
 ```bash
-python cli.py extract
-python cli.py extract --count 50
+python cli.py serve --port 8000       # or: python app.py
 ```
 
----
+Open **`http://127.0.0.1:8000`**:
 
-### 2. Launch the Web UI with Start/Stop Controls
+1. **▶ Start Extraction** begins the continuous pull.
+2. Live counters (Total, LeetCode, HackerRank, Duplicates Skipped) and the
+   question stream update as it runs.
+3. **⏹ Stop Extraction** halts it.
+4. **Download questions.json** streams the whole dataset out of the database.
 
-Launch the interactive control dashboard:
+When `ADMIN_TOKEN` is set (every deployed environment), the Start/Stop/Reset
+buttons need it: open the dashboard once as `/?token=<ADMIN_TOKEN>` and the page
+keeps it in `localStorage`.
+
+### 3. Other commands
 
 ```bash
-python app.py
-```
-Or:
-```bash
-python cli.py serve --port 8000
-```
-
-Open **`http://127.0.0.1:8000`** in your browser:
-1. Click **▶ Start Extraction** to begin continuously pulling questions.
-2. Watch the live counters (Total, LeetCode, HackerRank, Duplicates Skipped) and live question stream update in real-time.
-3. Click **⏹ Stop Extraction** at any time to pause or halt.
-4. Click **Download questions.json** or **View JSON** to preview and export your dataset.
-
----
-
-### 3. Fetch an Individual Problem into JSON (Optional)
-
-If you ever want to add a specific problem by URL or slug:
-```bash
-python cli.py fetch two-sum
+python cli.py stats                      # what is stored, and the catalogue cursor
+python cli.py import-json questions.json # seed the database from a JSON file
+python cli.py export-json backup.json    # dump the database back to a JSON file
+python cli.py fetch two-sum              # store one specific problem
 python cli.py fetch https://www.hackerrank.com/challenges/simple-array-sum/problem
 ```
 
 ---
 
-## 📄 Output Schema (`questions.json`)
+## 🌐 API
 
-Each question in `questions.json` contains:
+```
+GET  /api/questions?platform=leetcode&difficulty=Easy&tag=Array&q=sum&limit=50&offset=0
+GET  /api/questions/{platform}/{slug}
+GET  /api/questions/download
+GET  /api/stats
+GET  /health
+GET  /docs                        interactive OpenAPI docs
+```
+
+Mutating endpoints (`POST /api/extractor/start`, `/stop`, `POST /api/fetch`,
+`DELETE /api/questions`) require `X-Admin-Token` whenever `ADMIN_TOKEN` is set.
+
+`summary_only=true` on `/api/questions` drops descriptions, snippets and test
+cases — enough to render a list, roughly 50x smaller.
+
+---
+
+## 📄 Question Schema
+
+The API and `export-json` both emit this shape (`questions.json` in the repo is
+the same format, and is what `import-json` reads):
 
 ```json
 [
@@ -91,12 +109,7 @@ Each question in `questions.json` contains:
     "description_markdown": "You are given an array of integers `nums`...",
     "constraints": ["2 <= nums.length <= 10^4", "-10^9 <= nums[i] <= 10^9"],
     "hints": ["A really brute force way would be to search for all possible pairs..."],
-    "sample_test_cases": [
-      {
-        "input": "[2,7,11,15]\n9",
-        "output": "[0,1]"
-      }
-    ],
+    "sample_test_cases": [{ "input": "[2,7,11,15]\n9", "output": "[0,1]" }],
     "code_snippets": [
       {
         "lang": "Python3",
@@ -115,21 +128,28 @@ Each question in `questions.json` contains:
 
 ```
 questionscraper/
-├── extract.py            # Standalone continuous CLI extractor
-├── cli.py                # Command-line interface with subcommands
-├── app.py                # FastAPI server with Start/Stop & JSON endpoints
-├── questions.json        # Unified master JSON question dataset
-├── test_extractor.py     # Automated tests for extractor & deduplication
-├── scraper/              # Core extraction library
-│   ├── storage.py        # JsonProblemStore with zero-duplicate index
+├── app.py                # FastAPI: read API, extractor controls, dashboard
+├── cli.py                # extract / stats / import-json / export-json / fetch / serve
+├── extract.py            # shorthand for `cli.py extract`
+├── config.py             # environment-driven settings
+├── db.py                 # engine, session factory, schema bootstrap
+├── db_models.py          # questions + extractor_state tables
+├── questions.json        # seed dataset, imported with `cli.py import-json`
+├── render.yaml           # Render blueprint (free tier)
+├── DEPLOY.md             # Neon + Render + GitHub Actions walkthrough
+├── .github/workflows/
+│   └── scrape.yml        # scheduled harvest into Neon
+├── scraper/              # core extraction library
+│   ├── db_store.py       # DbProblemStore - durable, zero-duplicate storage
+│   ├── storage.py        # JsonProblemStore - flat questions.json alternative
 │   ├── extractor.py      # ContinuousExtractor background coordinator
 │   ├── leetcode.py       # LeetCode GraphQL catalog & problem extractor
 │   ├── hackerrank.py     # HackerRank REST catalog & problem extractor
 │   ├── models.py         # Problem & snippet Pydantic models
 │   ├── converter.py      # HTML-to-Markdown parser
-│   └── client.py         # Unified problem fetcher
-└── static/               # Control dashboard UI
-    ├── index.html        # Start/Stop console & live stream
-    ├── css/styles.css    # Modern dark mode glassmorphic styling
-    └── js/app.js         # Real-time controller & poller
+│   └── client.py         # unified problem fetcher
+└── static/               # dashboard UI
+    ├── index.html
+    ├── css/styles.css
+    └── js/app.js
 ```

@@ -1,6 +1,6 @@
 /**
  * Question Extractor — Frontend Controller
- * Controls continuous question pulling from LeetCode & HackerRank into questions.json.
+ * Controls continuous question pulling from LeetCode & HackerRank into the database.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -33,6 +33,34 @@ document.addEventListener('DOMContentLoaded', () => {
   let pollInterval = null;
   let isRunning = false;
   const displayedQuestionIds = new Set();
+
+  // Admin token. The deployed API requires X-Admin-Token on every mutating
+  // endpoint (start, stop, fetch, delete); locally ADMIN_TOKEN is unset and the
+  // header is ignored. Kept in localStorage rather than in the page, and
+  // ?token=... is consumed once and stripped from the address bar so the token
+  // does not survive in a copied URL or the browser history.
+  (function captureToken() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (!token) return;
+    localStorage.setItem('adminToken', token);
+    params.delete('token');
+    const query = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : ''));
+  })();
+
+  function adminHeaders(extra) {
+    const token = localStorage.getItem('adminToken') || '';
+    const headers = Object.assign({}, extra || {});
+    if (token) headers['X-Admin-Token'] = token;
+    return headers;
+  }
+
+  function unauthorized(res) {
+    if (res.status !== 401) return false;
+    showToast('Admin token required. Reopen this page as ?token=YOUR_ADMIN_TOKEN');
+    return true;
+  }
 
   // Toast Helper
   function showToast(message) {
@@ -180,13 +208,14 @@ document.addEventListener('DOMContentLoaded', () => {
       startBtn.disabled = true;
       const res = await fetch('/api/extractor/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ delay: 0.8 }),
       });
+      if (unauthorized(res)) { startBtn.disabled = false; return; }
       const data = await res.json();
       if (data.success) {
         updateStatusUI(true, 'Extraction started...', 'Running');
-        showToast('⚡ Continuous extraction started! Pulling into questions.json...');
+        showToast('⚡ Continuous extraction started! Pulling into the database...');
       }
     } catch (err) {
       showToast('Error starting extractor: ' + err.message);
@@ -198,7 +227,8 @@ document.addEventListener('DOMContentLoaded', () => {
   stopBtn.addEventListener('click', async () => {
     try {
       stopBtn.disabled = true;
-      const res = await fetch('/api/extractor/stop', { method: 'POST' });
+      const res = await fetch('/api/extractor/stop', { method: 'POST', headers: adminHeaders() });
+      if (unauthorized(res)) { stopBtn.disabled = false; return; }
       const data = await res.json();
       if (data.success) {
         updateStatusUI(false, 'Extraction stopped by user.', 'Stopped');
@@ -211,14 +241,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Controls: Download single questions.json file
+  // The button is a plain link to /api/questions/download, which streams the
+  // whole table out of the database as questions.json.
   if (downloadBtn) {
-    downloadBtn.addEventListener('click', async () => {
-      showToast('📥 Downloading questions.json (single dataset file)...');
-      try {
-        await fetch('/api/questions/save', { method: 'POST' });
-      } catch (err) {
-        console.warn('Sync questions.json error:', err);
-      }
+    downloadBtn.addEventListener('click', () => {
+      showToast('📥 Downloading questions.json (streamed from the database)...');
     });
   }
 
@@ -226,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
   viewJsonBtn.addEventListener('click', async () => {
     try {
       jsonModal.classList.add('active');
-      jsonContent.textContent = 'Loading questions.json...';
+      jsonContent.textContent = 'Loading questions...';
 
       const res = await fetch('/api/questions?limit=10');
       const data = await res.json();
@@ -259,11 +286,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Controls: Reset / Clear dataset
   clearBtn.addEventListener('click', async () => {
-    const confirmClear = confirm('Are you sure you want to reset questions.json to 0 questions?');
+    const confirmClear = confirm('Delete every stored question? This cannot be undone.');
     if (!confirmClear) return;
 
     try {
-      const res = await fetch('/api/questions', { method: 'DELETE' });
+      const res = await fetch('/api/questions', { method: 'DELETE', headers: adminHeaders() });
+      if (unauthorized(res)) return;
       const data = await res.json();
       if (data.success) {
         displayedQuestionIds.clear();
@@ -273,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statLeetcode.textContent = '0';
         statHackerrank.textContent = '0';
         statSkipped.textContent = '0';
-        showToast('questions.json has been reset.');
+        showToast('All stored questions deleted.');
       }
     } catch (err) {
       showToast('Error resetting dataset: ' + err.message);

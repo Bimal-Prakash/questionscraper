@@ -1,6 +1,16 @@
-# Question Extractor Dependencies
-fastapi>=0.115.0
-uvicorn>=0.34.0
+# --- API ---------------------------------------------------------------
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+
+# --- storage -----------------------------------------------------------
+SQLAlchemy>=2.0.36,<3.0
+# Postgres driver, used whenever DATABASE_URL points at one. Every deployed
+# environment does: a free host has no persistent disk for SQLite to live on.
+# The [binary] extra ships a wheel, so the build needs no libpq or compiler.
+psycopg[binary]>=3.2,<4.0
+
+# --- scraping ----------------------------------------------------------
 httpx>=0.28.0
-pydantic>=2.0.0
 beautifulsoup4>=4.12.0

@@ -1,14 +1,25 @@
+"""Command line entry point.
+
+Everything writes to the configured database (DATABASE_URL - SQLite locally,
+Neon Postgres in production). `--json PATH` switches any command back to a flat
+questions.json file for a throwaway local dataset.
+
+  python cli.py extract --count 200        # harvest 200 new questions
+  python cli.py extract --minutes 20       # harvest for 20 minutes (CI uses this)
+  python cli.py stats                      # what is stored
+  python cli.py import-json questions.json # seed the database from the repo file
+  python cli.py export-json out.json       # dump the database back to a file
+  python cli.py fetch two-sum              # store one specific problem
+  python cli.py serve                      # local dashboard on :8000
+"""
+
 import argparse
-import sys
-import webbrowser
-import time
+import json
 import signal
-from scraper import (
-    fetch_problem,
-    JsonProblemStore,
-    ContinuousExtractor,
-    Platform
-)
+import sys
+import time
+import webbrowser
+from pathlib import Path
 
 if sys.platform == "win32":
     try:
@@ -17,47 +28,76 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-def run_extract_command(args):
-    store = JsonProblemStore(file_path=args.output)
-    initial_stats = store.get_stats()
+
+def build_store(json_path: str | None):
+    """Pick the storage backend for this invocation."""
+    if json_path:
+        from scraper import JsonProblemStore
+
+        return JsonProblemStore(file_path=json_path)
+
+    from db import init_db
+    from scraper import DbProblemStore
+
+    init_db()
+    return DbProblemStore()
+
+
+def describe_store(store) -> str:
+    file_path = getattr(store, "file_path", None)
+    if file_path is not None:
+        return str(file_path)
+    from db import describe_database
+
+    return describe_database()
+
+
+def run_extract_command(args) -> None:
+    from scraper import ContinuousExtractor
+
+    store = build_store(getattr(args, "json", None))
+    initial = store.get_stats()
+
+    if args.count:
+        target = f"{args.count} new questions"
+    elif args.minutes:
+        target = f"{args.minutes} minutes of pulling"
+    else:
+        target = "Infinite (pulls until Ctrl+C)"
 
     print("=" * 65)
-    print("⚡ CONTINUOUS CODING QUESTION EXTRACTOR")
+    print("CONTINUOUS CODING QUESTION EXTRACTOR")
     print("=" * 65)
-    print(f"Output File:        {store.file_path}")
-    print(f"Existing in JSON:   {initial_stats['total_questions']} questions "
-          f"({initial_stats['leetcode_count']} LeetCode, {initial_stats['hackerrank_count']} HackerRank)")
-    print(f"Extraction Target:  {'Infinite (pulls until Ctrl+C)' if args.count == 0 else f'{args.count} new questions'}")
+    print(f"Storage:            {describe_store(store)}")
+    print(f"Already stored:     {initial['total_questions']} questions "
+          f"({initial['leetcode_count']} LeetCode, {initial['hackerrank_count']} HackerRank)")
+    print(f"Extraction target:  {target}")
     print("=" * 65)
 
     extracted_count = 0
-    target_count = args.count
 
     def on_extracted(item):
         nonlocal extracted_count
         extracted_count += 1
-        plat = item['platform'].upper()
-        diff = item.get('difficulty', 'Unknown')
-        tags = ', '.join(item.get('tags', [])[:3])
+        tags = ", ".join(item.get("tags", [])[:3])
         tag_str = f" [{tags}]" if tags else ""
-        print(f"[+] [{plat}] ({extracted_count}) Extracted: {item['title']} - {diff}{tag_str}")
-
-        if target_count > 0 and extracted_count >= target_count:
-            print(f"\n[*] Target count of {target_count} reached.")
-            extractor.stop()
+        print(f"[+] [{item['platform'].upper()}] ({extracted_count}) "
+              f"{item['title']} - {item.get('difficulty', 'Unknown')}{tag_str}", flush=True)
 
     def on_skipped(item):
-        plat = item['platform'].upper()
-        print(f"[-] [{plat}] Duplicate skipped: {item.get('title', item.get('slug'))}")
+        print(f"[-] [{item['platform'].upper()}] Duplicate skipped: "
+              f"{item.get('title', item.get('slug'))}", flush=True)
 
     extractor = ContinuousExtractor(
         store=store,
         delay_seconds=args.delay,
         on_item_extracted=on_extracted,
-        on_duplicate_skipped=on_skipped,
+        on_duplicate_skipped=on_skipped if args.verbose else None,
     )
+    extractor.stop_after_items = max(0, args.count)
+    extractor.stop_after_seconds = max(0.0, args.minutes * 60)
 
-    def sigint_handler(sig, frame):
+    def sigint_handler(_sig, _frame):
         print("\n\n[*] Stop signal received (Ctrl+C). Halting extraction...")
         extractor.stop()
 
@@ -72,131 +112,171 @@ def run_extract_command(args):
     except KeyboardInterrupt:
         extractor.stop()
 
-    final_stats = store.get_stats()
+    final = store.get_stats()
     print("\n" + "=" * 65)
     print("EXTRACTION SUMMARY")
     print("=" * 65)
-    print(f"Questions Added This Session: {extracted_count}")
-    print(f"Duplicates Skipped:           {store.duplicates_skipped}")
-    print(f"Total Unique in JSON:         {final_stats['total_questions']}")
-    print(f"  - LeetCode:                 {final_stats['leetcode_count']}")
-    print(f"  - HackerRank:               {final_stats['hackerrank_count']}")
-    print(f"File Saved At:                {store.file_path}")
+    print(f"Added this session:  {extracted_count}")
+    print(f"Duplicates skipped:  {store.duplicates_skipped}")
+    print(f"Total stored:        {final['total_questions']}")
+    print(f"  - LeetCode:        {final['leetcode_count']}")
+    print(f"  - HackerRank:      {final['hackerrank_count']}")
+    print(f"Storage:             {describe_store(store)}")
     print("=" * 65)
 
-def main():
+
+def run_stats_command(args) -> None:
+    store = build_store(getattr(args, "json", None))
+    stats = store.get_stats()
+    print(f"Storage:      {describe_store(store)}")
+    print(f"Total:        {stats['total_questions']}")
+    print(f"  LeetCode:   {stats['leetcode_count']}")
+    print(f"  HackerRank: {stats['hackerrank_count']}")
+
+    cursor = getattr(store, "get_cursor", lambda: {})()
+    if cursor:
+        print(f"Catalog cursor: {cursor}")
+
+    # Non-zero exit on an empty database makes a CI run fail loudly instead of
+    # reporting success after scraping nothing.
+    if stats["total_questions"] == 0:
+        print("[!] No questions stored.", file=sys.stderr)
+        sys.exit(1)
+
+
+def run_import_command(args) -> None:
+    """Seed the database from a questions.json file."""
+    source = Path(args.path)
+    if not source.exists():
+        print(f"[!] No such file: {source}", file=sys.stderr)
+        sys.exit(1)
+
+    data = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        print(f"[!] {source} is not a JSON array of questions.", file=sys.stderr)
+        sys.exit(1)
+
+    store = build_store(None)
+    print(f"[*] Importing {len(data)} question(s) from {source} into {describe_store(store)}...")
+    added = store.add_many(data)
+    print(f"[+] Inserted {added}, skipped {len(data) - added} already present.")
+    print(f"[*] Total stored: {store.get_stats()['total_questions']}")
+
+
+def run_export_command(args) -> None:
+    """Dump the database back out as a questions.json file."""
+    store = build_store(None)
+    target = Path(args.path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    written = 0
+    with target.open("w", encoding="utf-8") as handle:
+        handle.write("[\n")
+        for item in store.iter_all():
+            handle.write(("" if written == 0 else ",\n") + json.dumps(item, ensure_ascii=False, indent=2))
+            written += 1
+        handle.write("\n]\n")
+
+    print(f"[+] Wrote {written} question(s) to {target}")
+
+
+def run_fetch_command(args) -> None:
+    from scraper import fetch_problem
+
+    print(f"[*] Fetching problem '{args.query}' (platform: {args.platform})...")
+    try:
+        problem = fetch_problem(args.query, platform=args.platform)
+    except Exception as e:
+        print(f"[!] Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print("=" * 60)
+    print(f"Title:       {problem.id}. {problem.title}")
+    print(f"Platform:    {problem.platform.value.upper()}")
+    print(f"Difficulty:  {problem.difficulty.value}")
+    print(f"URL:         {problem.url}")
+    print(f"Tags:        {', '.join(problem.tags) if problem.tags else 'None'}")
+    print(f"Snippets:    {len(problem.code_snippets)} languages available")
+    print("=" * 60)
+
+    if args.open_url:
+        webbrowser.open(problem.url)
+
+    store = build_store(getattr(args, "json", None))
+    if store.add_problem(problem):
+        print(f"[+] Stored in {describe_store(store)}")
+    else:
+        print(f"[SKIP] Already present in {describe_store(store)} (no duplicate added)")
+
+
+def run_serve_command(args) -> None:
+    import uvicorn
+
+    url = f"http://{args.host}:{args.port}"
+    print(f"[*] Starting Question Extractor Web UI at {url}")
+    if not args.no_browser:
+        webbrowser.open(url)
+    uvicorn.run("app:app", host=args.host, port=args.port)
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Question Scraper - Extract coding questions directly from LeetCode & HackerRank into JSON",
+        description="Question Scraper - extract coding questions from LeetCode & HackerRank",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Continuously pull questions into questions.json:
-  python cli.py extract
-
-  # Pull 25 new questions into questions.json:
-  python cli.py extract --count 25
-
-  # Fetch a specific problem into questions.json:
-  python cli.py fetch two-sum --json
-
-  # Launch the interactive Web UI dashboard with Start/Stop button:
-  python cli.py serve --port 8000
-        """
+        epilog=__doc__,
     )
+    subparsers = parser.add_subparsers(dest="command")
 
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    extract_parser = subparsers.add_parser("extract", help="Continuously extract questions")
+    extract_parser.add_argument("--count", "-n", type=int, default=0,
+                                help="Stop after this many new questions (0 = until Ctrl+C)")
+    extract_parser.add_argument("--minutes", "-m", type=float, default=0,
+                                help="Stop after this many minutes (0 = no limit)")
+    extract_parser.add_argument("--delay", "-d", type=float, default=0.8,
+                                help="Delay between requests (default: 0.8s)")
+    extract_parser.add_argument("--json", help="Write to this JSON file instead of the database")
+    extract_parser.add_argument("--verbose", "-v", action="store_true",
+                                help="Also log every duplicate that was skipped")
 
-    # Extract command (Default)
-    extract_parser = subparsers.add_parser("extract", help="Continuously extract questions into questions.json")
-    extract_parser.add_argument("--output", "-o", default="questions.json", help="Output JSON path (default: questions.json)")
-    extract_parser.add_argument("--count", "-n", type=int, default=0, help="Questions to extract (0 = infinite until Ctrl+C)")
-    extract_parser.add_argument("--delay", "-d", type=float, default=0.8, help="Delay between requests (default: 0.8s)")
+    stats_parser = subparsers.add_parser("stats", help="Show what is stored")
+    stats_parser.add_argument("--json", help="Read a JSON file instead of the database")
 
-    # Fetch command
+    import_parser = subparsers.add_parser("import-json", help="Seed the database from a JSON file")
+    import_parser.add_argument("path", nargs="?", default="questions.json")
+
+    export_parser = subparsers.add_parser("export-json", help="Dump the database to a JSON file")
+    export_parser.add_argument("path", nargs="?", default="questions.export.json")
+
     fetch_parser = subparsers.add_parser("fetch", help="Fetch a single question by URL or slug")
-    fetch_parser.add_argument("query", help="Problem URL or slug (e.g. 'two-sum' or full URL)")
-    fetch_parser.add_argument(
-        "--platform", "-p",
-        choices=["auto", "leetcode", "hackerrank"],
-        default="auto",
-        help="Target platform (default: auto)"
-    )
-    fetch_parser.add_argument(
-        "--json", "-j",
-        action="store_true",
-        default=True,
-        help="Save directly to questions.json (default: true)"
-    )
-    fetch_parser.add_argument(
-        "--output-json",
-        default="questions.json",
-        help="Path to questions.json file (default: questions.json)"
-    )
-    fetch_parser.add_argument(
-        "--open-url",
-        action="store_true",
-        help="Open the original question URL in the web browser"
-    )
+    fetch_parser.add_argument("query", help="Problem URL or slug (e.g. 'two-sum')")
+    fetch_parser.add_argument("--platform", "-p", choices=["auto", "leetcode", "hackerrank"],
+                              default="auto", help="Target platform (default: auto)")
+    fetch_parser.add_argument("--json", help="Write to this JSON file instead of the database")
+    fetch_parser.add_argument("--open-url", action="store_true",
+                              help="Open the original question URL in a browser")
 
-    # Serve command
-    serve_parser = subparsers.add_parser("serve", help="Launch the Web UI dashboard with Start/Stop controls")
-    serve_parser.add_argument("--host", default="127.0.0.1", help="Host address (default: 127.0.0.1)")
-    serve_parser.add_argument("--port", type=int, default=8000, help="Port number (default: 8000)")
-    serve_parser.add_argument("--no-browser", action="store_true", help="Do not automatically open browser")
+    serve_parser = subparsers.add_parser("serve", help="Launch the web dashboard")
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8000)
+    serve_parser.add_argument("--no-browser", action="store_true")
 
     args = parser.parse_args()
 
-    if not args.command or args.command == "extract":
-        # If no arguments given, default to extract
-        if not hasattr(args, "output"):
-            args.output = "questions.json"
-            args.count = 0
-            args.delay = 0.8
+    if args.command in (None, "extract"):
+        if args.command is None:
+            args = extract_parser.parse_args([])
         run_extract_command(args)
-        return
+    elif args.command == "stats":
+        run_stats_command(args)
+    elif args.command == "import-json":
+        run_import_command(args)
+    elif args.command == "export-json":
+        run_export_command(args)
+    elif args.command == "fetch":
+        run_fetch_command(args)
+    elif args.command == "serve":
+        run_serve_command(args)
 
-    if args.command == "serve":
-        host = getattr(args, "host", "127.0.0.1")
-        port = getattr(args, "port", 8000)
-        no_browser = getattr(args, "no_browser", False)
-
-        url = f"http://{host}:{port}"
-        print(f"[*] Starting Question Extractor Web UI at {url}")
-        if not no_browser:
-            webbrowser.open(url)
-
-        import uvicorn
-        from app import app
-        uvicorn.run(app, host=host, port=port)
-        return
-
-    if args.command == "fetch":
-        print(f"[*] Fetching problem '{args.query}' (Platform: {args.platform})...")
-        try:
-            problem = fetch_problem(args.query, platform=args.platform)
-            print("=" * 60)
-            print(f"Title:       {problem.id}. {problem.title}")
-            print(f"Platform:    {problem.platform.value.upper()}")
-            print(f"Difficulty:  {problem.difficulty.value}")
-            print(f"URL:         {problem.url}")
-            print(f"Tags:        {', '.join(problem.tags) if problem.tags else 'None'}")
-            print(f"Snippets:    {len(problem.code_snippets)} languages available")
-            print("=" * 60)
-
-            if args.open_url:
-                webbrowser.open(problem.url)
-
-            if args.json:
-                store = JsonProblemStore(file_path=args.output_json)
-                added = store.add_problem(problem)
-                if added:
-                    print(f"[+] Successfully saved into {args.output_json} (Total: {len(store.problems)})")
-                else:
-                    print(f"[SKIP] Problem already exists in {args.output_json} (No duplicate added)")
-
-        except Exception as e:
-            print(f"[!] Error: {e}", file=sys.stderr)
-            sys.exit(1)
 
 if __name__ == "__main__":
     main()

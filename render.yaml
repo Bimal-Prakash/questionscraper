@@ -1,0 +1,72 @@
+# Render Blueprint - free tier.
+#
+# Render's free web service has an ephemeral disk and stops after 15 minutes of
+# no traffic, so it holds no state: DATABASE_URL points at Neon Postgres and the
+# harvest runs in GitHub Actions. Everything this service does is read from
+# Postgres and serve JSON (plus the dashboard, for a manual top-up).
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo.
+# Then set DATABASE_URL in the dashboard (marked sync:false, so it is never
+# committed). Full walkthrough in DEPLOY.md.
+
+services:
+  - type: web
+    name: question-scraper-api
+    # Render's native Python runtime, not Docker: nothing here needs system
+    # packages (psycopg ships a binary wheel), so a plain pip install is a
+    # faster build and one less moving part.
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    # $PORT is assigned by Render. One worker: the extractor is a thread inside
+    # the process, and two workers would mean two of them.
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # ---- set these in the dashboard --------------------------------
+      # Neon connection string. Paste it exactly as Neon gives it
+      # (postgresql://…?sslmode=require); the app rewrites the scheme.
+      - key: DATABASE_URL
+        sync: false
+      # Your frontend's origin(s), comma separated, scheme included, no
+      # trailing slash. Include your dev server too:
+      #   https://app.example.com,http://localhost:5173
+      - key: CORS_ORIGINS
+        sync: false
+      # Optional. Only needed if your frontend's hostname changes per deploy;
+      # leave blank otherwise. Example: https://.*\.my-app\.vercel\.app
+      - key: CORS_ORIGIN_REGEX
+        sync: false
+
+      # ---- generated once, then stable -------------------------------
+      # Required by the extractor controls, /api/fetch and DELETE
+      # /api/questions as X-Admin-Token. Copy the generated value into your
+      # GitHub secrets if you ever want to drive them from CI.
+      - key: ADMIN_TOKEN
+        generateValue: true
+
+      # ---- fixed -----------------------------------------------------
+      # Render terminates TLS at its edge proxy and forwards over plain HTTP.
+      # Without trusting its X-Forwarded-Proto header, generated URLs come back
+      # as "http://" and a browser on an https page refuses them as mixed
+      # content.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # The harvest runs in GitHub Actions. An instance that sleeps after 15
+      # idle minutes cannot keep a scraping loop alive anyway.
+      - key: EXTRACT_ON_STARTUP
+        value: "false"
+      - key: DEFAULT_PAGE_SIZE
+        value: "50"
+      - key: MAX_PAGE_SIZE
+        value: "200"
+      # The code runs on 3.12-3.14; pinned so a Render default bump cannot
+      # change the wheels under a redeploy.
+      - key: PYTHON_VERSION
+        value: "3.12"
