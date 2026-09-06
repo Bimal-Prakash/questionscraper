@@ -38,7 +38,7 @@
         </div>
         <div class="format-pill" title="Target Storage">
           <span class="format-label">FORMAT:</span>
-          <span class="format-val">JSON ONLY</span>
+          <span class="format-val" id="formatVal">DATABASE</span>
         </div>
       </div>
     </header>
@@ -52,7 +52,7 @@
             <span class="status-dot" id="statusDot"></span>
             <span class="status-text" id="statusText">READY</span>
           </div>
-          <div class="hero-live-action" id="currentActionText">Click "Start Extraction" to begin harvesting questions into questions.json</div>
+          <div class="hero-live-action" id="currentActionText">Click "Start Extraction" to begin harvesting questions into the database</div>
         </div>
 
         <div class="hero-controls-row">
@@ -72,7 +72,7 @@
 
           <div class="controls-divider"></div>
 
-          <a id="downloadBtn" href="/api/questions/download" class="btn-action btn-download" title="Download single questions.json file">
+          <a id="downloadBtn" href="/api/questions/download" class="btn-action btn-download" title="Download the whole dataset as questions.json">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
@@ -89,13 +89,30 @@
             <span>View JSON</span>
           </button>
 
-          <button id="clearBtn" class="btn-action btn-danger-outline" title="Reset dataset to 0 questions">
+          <button id="clearBtn" class="btn-action btn-danger-outline" title="Delete every stored question">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
             </svg>
             <span>Reset</span>
           </button>
+        </div>
+
+        <!-- Shown only when the server reports that ADMIN_TOKEN is set. The
+             value is read straight off this field on each request and is never
+             persisted, so closing the tab forgets it. -->
+        <div class="token-row" id="tokenRow" hidden>
+          <div class="token-label">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <span>Admin token</span>
+          </div>
+          <input id="adminTokenInput" class="token-input" type="password" autocomplete="off"
+                 spellcheck="false" placeholder="Paste ADMIN_TOKEN to enable Start, Stop and Reset">
+          <button id="tokenToggleBtn" class="token-reveal" type="button" title="Show or hide the token">Show</button>
+          <span class="token-hint">Used for this tab only &bull; never stored</span>
         </div>
       </section>
 

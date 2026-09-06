@@ -144,6 +144,8 @@ def health() -> dict[str, Any]:
         "database": db_ok,
         "database_target": describe_database(),
         "environment": settings.environment,
+        # The dashboard shows its admin-token field only when this is true.
+        "admin_token_required": bool(settings.admin_token),
         "extractor_running": bool(extractor and extractor.is_running),
         "total_questions": store.count() if (store and db_ok) else 0,
     }

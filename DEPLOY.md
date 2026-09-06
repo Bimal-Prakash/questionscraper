@@ -141,9 +141,10 @@ DELETE /api/questions           delete everything
 ```
 
 **Never put `ADMIN_TOKEN` in frontend code.** Anything shipped to a browser is
-readable. The dashboard at `/` reads it from `localStorage`: open
-`https://<your-service>.onrender.com/?token=<ADMIN_TOKEN>` once and the page
-stores it and strips it from the URL. The cron keeps data growing without it.
+readable. The dashboard at `/` has an **Admin token** field under the controls:
+paste the token there when you want to drive the extractor by hand. It is sent
+as a header on that request and kept nowhere - not in the URL, not in browser
+storage - so closing the tab forgets it. The cron keeps data growing without it.
 
 ---
 
@@ -173,6 +174,6 @@ so the same commands are safe to try offline first.
 | `/health` says `"database": false` | Wrong `DATABASE_URL`, or the Neon project was deleted. |
 | Render build fails on a wheel | `PYTHON_VERSION` in `render.yaml` is `3.12`; check it was not overridden in the dashboard. |
 | `/api/questions` returns `total: 0` | The workflow has not run yet, or it failed. Check the Actions tab. |
-| Start button returns 401 | No admin token in this browser. Reopen the dashboard as `/?token=<ADMIN_TOKEN>`. |
+| Start button returns 401 | The Admin token field is empty or holds the wrong value. Copy `ADMIN_TOKEN` from Render's Environment tab. |
 | The harvest adds nothing new | Expected once the catalogue has been walked: the cursor is at the end and every candidate is already stored. It wraps around and re-checks cheaply. |
 | A tag filter returns nothing for rows imported before this version | `tags_text` is written on insert; re-import those rows (`import-json`) to backfill it. |

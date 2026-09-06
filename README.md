@@ -54,9 +54,11 @@ Open **`http://127.0.0.1:8000`**:
 3. **⏹ Stop Extraction** halts it.
 4. **Download questions.json** streams the whole dataset out of the database.
 
-When `ADMIN_TOKEN` is set (every deployed environment), the Start/Stop/Reset
-buttons need it: open the dashboard once as `/?token=<ADMIN_TOKEN>` and the page
-keeps it in `localStorage`.
+When `ADMIN_TOKEN` is set (every deployed environment), the dashboard shows an
+**Admin token** field under the controls; paste the token there and Start, Stop
+and Reset work. It is read straight off the field on each request and stored
+nowhere - closing the tab forgets it. The field stays hidden locally, where no
+token is configured.
 
 ### 3. Other commands
 

@@ -395,6 +395,82 @@ body {
   border-color: #ef4444;
 }
 
+/* Admin token field - only rendered when the API requires one */
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-top: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.token-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.token-input {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 0.62rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.84rem;
+  letter-spacing: 0.02em;
+  transition: var(--transition-fast);
+}
+
+.token-input::placeholder {
+  color: var(--text-muted);
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0;
+}
+
+.token-input:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.06);
+}
+
+/* Set after a 401 so the field itself says which input was rejected. */
+.token-input.invalid {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.token-reveal {
+  padding: 0.55rem 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.token-reveal:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-hover);
+}
+
+.token-hint {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* Real-Time Metrics Grid */
 .metrics-grid {
   display: grid;
@@ -885,5 +961,12 @@ body {
   }
   .btn-danger-outline {
     margin-left: 0;
+  }
+  .token-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .token-hint {
+    white-space: normal;
   }
 }

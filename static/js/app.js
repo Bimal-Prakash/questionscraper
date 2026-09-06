@@ -10,6 +10,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const viewJsonBtn = document.getElementById('viewJsonBtn');
   const clearBtn = document.getElementById('clearBtn');
   const downloadBtn = document.getElementById('downloadBtn');
+  const adminTokenInput = document.getElementById('adminTokenInput');
+  const tokenRow = document.getElementById('tokenRow');
+  const tokenToggleBtn = document.getElementById('tokenToggleBtn');
+  const formatVal = document.getElementById('formatVal');
 
   const statusBadge = document.getElementById('statusBadge');
   const statusText = document.getElementById('statusText');
@@ -36,21 +40,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Admin token. The deployed API requires X-Admin-Token on every mutating
   // endpoint (start, stop, fetch, delete); locally ADMIN_TOKEN is unset and the
-  // header is ignored. Kept in localStorage rather than in the page, and
-  // ?token=... is consumed once and stripped from the address bar so the token
-  // does not survive in a copied URL or the browser history.
-  (function captureToken() {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (!token) return;
-    localStorage.setItem('adminToken', token);
-    params.delete('token');
-    const query = params.toString();
-    window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : ''));
-  })();
-
+  // header is ignored. The value is read off the input on each request and kept
+  // nowhere else - not localStorage, not the URL - so it never outlives the tab
+  // and cannot leak through a copied link or shared browser profile.
   function adminHeaders(extra) {
-    const token = localStorage.getItem('adminToken') || '';
+    const token = adminTokenInput ? adminTokenInput.value.trim() : '';
     const headers = Object.assign({}, extra || {});
     if (token) headers['X-Admin-Token'] = token;
     return headers;
@@ -58,8 +52,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function unauthorized(res) {
     if (res.status !== 401) return false;
-    showToast('Admin token required. Reopen this page as ?token=YOUR_ADMIN_TOKEN');
+    if (adminTokenInput) {
+      adminTokenInput.classList.add('invalid');
+      adminTokenInput.focus();
+      adminTokenInput.select();
+    }
+    showToast(adminTokenInput && adminTokenInput.value.trim()
+      ? 'That admin token was rejected. Check it in the Render dashboard.'
+      : 'Paste your admin token in the field above first.');
     return true;
+  }
+
+  // Reveal toggle, so a pasted token can be eyeballed before use.
+  if (tokenToggleBtn && adminTokenInput) {
+    tokenToggleBtn.addEventListener('click', () => {
+      const hidden = adminTokenInput.type === 'password';
+      adminTokenInput.type = hidden ? 'text' : 'password';
+      tokenToggleBtn.textContent = hidden ? 'Hide' : 'Show';
+    });
+    adminTokenInput.addEventListener('input', () => {
+      adminTokenInput.classList.remove('invalid');
+    });
+  }
+
+  // Only show the field when the server actually enforces a token, so local
+  // runs (ADMIN_TOKEN unset) keep the console uncluttered.
+  async function detectAuthRequirement() {
+    try {
+      const res = await fetch('/health');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.admin_token_required && tokenRow) tokenRow.hidden = false;
+      if (formatVal && data.database_target) {
+        formatVal.textContent = data.database_target.startsWith('sqlite') ? 'SQLITE' : 'POSTGRES';
+      }
+    } catch (err) {
+      console.warn('Could not read /health:', err);
+    }
   }
 
   // Toast Helper
@@ -309,6 +338,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Initialization
+  detectAuthRequirement();
   loadInitialQuestions();
   fetchStatus();
   startPolling();
